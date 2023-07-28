@@ -1,37 +1,47 @@
 const express = require("express");
-const app = express();
+const path = require("path");
+const cookieParser = require("cookie-parser");
 const { connectToMongoDB } = require("./connect");
-const urlRoute = require('./routes/url');
-const URL = require('./models/url');
+const { restrictToLoggedinUserOnly, checkAuth } = require("./middlewares/auth");
+const URL = require("./models/url");
 
+const urlRoute = require("./routes/url");
+const staticRoute = require("./routes/staticRouter");
+const userRoute = require("./routes/user");
+
+const app = express();
 const PORT = 8001;
-const mongoDBurl = "mongodb://localhost:27017/url-shortener";
 
-
-connectToMongoDB(mongoDBurl).then(() =>
+connectToMongoDB(process.env.MONGODB ?? "mongodb://localhost:27017/url-shortener").then(() =>
   console.log("Mongodb connected")
 );
 
+app.set("view engine", "ejs");
+app.set("views", path.resolve("./views"));
+
 app.use(express.json());
-app.use("/url", urlRoute);
+app.use(express.urlencoded({ extended: false }));
+app.use(cookieParser());
 
-app.get('/:shortId', async (req, res) => {
-    const shortId = req.params.shortId;
-    console.log(shortId);
-    const entry = await URL.findOneAndUpdate({
-        shortId,
+app.use("/url", restrictToLoggedinUserOnly, urlRoute);
+app.use("/user", userRoute);
+app.use("/", checkAuth, staticRoute);
+
+app.get("/url/:shortId", async (req, res) => {
+  const shortId = req.params.shortId;
+  const entry = await URL.findOneAndUpdate(
+    {
+      shortId,
     },
-        {
-            $push: {
-                visitHistory: {
-                    timestamp: Date.now(),
-                },
-            },
-        }
-    );
-    console.log("Entry", entry);
-    res.redirect(entry.redirectURL);
+    {
+      $push: {
+        visitHistory: {
+          timestamp: Date.now(),
+        },
+      },
+    }
+  );
+  res.redirect(entry.redirectURL);
 });
-
 
 app.listen(PORT, () => console.log(`Server Started at PORT:${PORT}`));
